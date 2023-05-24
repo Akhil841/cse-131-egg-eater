@@ -1,0 +1,9 @@
+(fun (inc lst)
+  (let (res nil)
+    (loop
+      (if (= lst nil) (break res)
+        (block
+          (set! res (tuple (+ (lookup lst 0) 1) res))
+          (set! lst (lookup lst 1)))))))
+
+(inc (tuple 3 (tuple 900 (tuple 70 nil))))

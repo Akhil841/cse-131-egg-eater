@@ -1,0 +1,3 @@
+(let (lst (tuple 3 4 true))
+    (+ (lookup lst 2) 1)
+)

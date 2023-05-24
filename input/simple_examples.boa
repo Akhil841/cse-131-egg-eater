@@ -1,0 +1,12 @@
+(let (lst0 (tuple 2 2 2)) 
+    (let (lst1 (tuple 0 1 lst0 3 4))
+        (block
+            (print (lookup lst1 0))
+            (print (lookup lst1 1))
+            (print (lookup lst1 2))
+            (print (lookup lst1 3))
+            (print (lookup lst1 4))
+            (print lst1)
+        )
+    )
+)

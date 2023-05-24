@@ -1,3 +1,0 @@
-(block
-  (print 5)
-  (print input))

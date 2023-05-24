@@ -1,3 +1,0 @@
-(if (let (x (+ input input)) (= x 10))
-  (print true)
-  (print false))

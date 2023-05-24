@@ -1,0 +1,12 @@
+(fun (pointcr x y) (tuple x y))
+(fun (pointsum a b) (tuple
+    (+ (lookup a 0) (lookup b 0))
+    (+ (lookup a 1) (lookup b 1))
+))
+(block
+    (print (pointsum (pointcr 1 2) (pointcr 1 2)))
+    (print (pointsum (tuple 3 4) (tuple 4 3)))
+    (print (pointcr true 7))
+    (print (let (a (tuple 3 8)) (pointcr 3 a)))
+    (pointsum (pointcr 1 1) (pointcr 3 4))
+)

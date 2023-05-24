@@ -40,11 +40,13 @@ enum Expr {
     Call1(String, Box<Expr>),
     Call2(String, Box<Expr>, Box<Expr>),
 
-    Pair(Box<Expr>, Box<Expr>),
-    Fst(Box<Expr>),
-    Snd(Box<Expr>),
-    SetFst(Box<Expr>, Box<Expr>),
-    SetSnd(Box<Expr>, Box<Expr>),
+    Tuple(Vec<Expr>),
+    Lookup(Box<Expr>, Box<Expr>),
+
+    //Pair(Box<Expr>, Box<Expr>),
+    //Fst(Box<Expr>),
+    //Snd(Box<Expr>),
+    //SetFst(Box<Expr>, Box<Expr>),
 }
 
 fn parse_expr(s: &Sexp) -> Expr {
@@ -56,22 +58,22 @@ fn parse_expr(s: &Sexp) -> Expr {
         Sexp::List(vec) => match &vec[..] {
             [Sexp::Atom(S(op)), e] if op == "add1" => Expr::Add1(Box::new(parse_expr(e))),
             [Sexp::Atom(S(op)), e] if op == "sub1" => Expr::Sub1(Box::new(parse_expr(e))),
-            [Sexp::Atom(S(op)), e] if op == "fst" => Expr::Fst(Box::new(parse_expr(e))),
-            [Sexp::Atom(S(op)), e] if op == "snd" => Expr::Snd(Box::new(parse_expr(e))),
+            //[Sexp::Atom(S(op)), e] if op == "fst" => Expr::Fst(Box::new(parse_expr(e))),
+            //[Sexp::Atom(S(op)), e] if op == "snd" => Expr::Snd(Box::new(parse_expr(e))),
+            [Sexp::Atom(S(op)), e1, e2] if op == "lookup" => Expr::Lookup(Box::new(parse_expr(e1)), Box::new(parse_expr(e2))),
+            [Sexp::Atom(S(op)), expr] if op == "fst" => Expr::Lookup(Box::new(parse_expr(expr)), Box::new(Expr::Num(0))),
+            [Sexp::Atom(S(op)), expr] if op == "snd" => Expr::Lookup(Box::new(parse_expr(expr)), Box::new(Expr::Num(1))),
             [Sexp::Atom(S(op)), e1, e2] if op == "+" => {
                 Expr::Plus(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
             }
             [Sexp::Atom(S(op)), e1, e2] if op == "-" => {
                 Expr::Minus(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
             }
-            [Sexp::Atom(S(op)), e1, e2] if op == "pair" => {
-                Expr::Pair(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
+            [Sexp::Atom(S(op)), exprs @ ..] if (op == "tuple") => {
+                Expr::Tuple(exprs.into_iter().map(parse_expr).collect())
             }
-            [Sexp::Atom(S(op)), e1, e2] if op == "setfst!" => {
-                Expr::SetFst(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
-            }
-            [Sexp::Atom(S(op)), e1, e2] if op == "setsnd!" => {
-                Expr::SetSnd(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
+            [Sexp::Atom(S(op)), e1, e2] if (op == "pair") => {
+                Expr::Tuple(vec![parse_expr(e1), parse_expr(e2)])
             }
             [Sexp::Atom(S(op)), Sexp::Atom(S(name)), e] if op == "set!" => {
                 Expr::Set(name.to_string(), Box::new(parse_expr(e)))
@@ -184,8 +186,8 @@ fn compile_expr(
 ) -> String {
     match e {
         Expr::Num(n) => format!("mov rax, {}", *n << 1),
-        Expr::True => format!("mov rax, {}", 3),
-        Expr::False => format!("mov rax, {}", 1),
+        Expr::True => format!("mov rax, {}", 7),
+        Expr::False => format!("mov rax, {}", 3),
         Expr::Id(s) if s == "input" => format!("mov rax, rdi"),
         Expr::Id(s) if s == "nil" => format!("mov rax, 0x1"),
         Expr::Id(s) => {
@@ -196,13 +198,18 @@ fn compile_expr(
             let e_is = compile_expr(e, si, env, brake, l);
             let index = if si % 2 == 1 { si + 2 } else { si + 1 };
             let offset = index * 8;
+            //https://edstem.org/us/courses/38748/discussion/3150044
+            //hack to fix alignment
             format!(
                 "
             {e_is}
             sub rsp, {offset}
             mov [rsp], rdi
             mov rdi, rax
+            mov rbx, rsp
+            and rsp, -16
             call snek_print
+            mov rsp, rbx
             mov rdi, [rsp]
             add rsp, {offset}
           "
@@ -264,8 +271,8 @@ fn compile_expr(
                 mov rbx, 7
                 jne throw_error
                 cmp rax, [rsp + {offset}]
-                mov rbx, 3
-                mov rax, 1
+                mov rbx, 7
+                mov rax, 3
                 cmovg rax, rbx
             "
             )
@@ -281,15 +288,32 @@ fn compile_expr(
                 {e2_instrs}
                 mov rbx, rax
                 xor rbx, [rsp + {offset}]
-                test rbx, 1
+                and rbx, 1
+                cmp rbx, 0
                 mov rbx, 7
                 jne throw_error
                 cmp rax, [rsp + {offset}]
-                mov rbx, 3
-                mov rax, 1
+                mov rbx, 7
+                mov rax, 3
                 cmove rax, rbx
             "
             )
+            
+            /*//eq that ignores tag checking
+            //i still don't understand why the specifically not nil
+            //pointer (heap addr start + 1) is considered equal to nil by bst.boa?
+            //i've been looking into it for like an hour and i still don't know :(
+            format!(
+                "
+                {e1_instrs}
+                mov [rsp + {offset}], rax
+                {e2_instrs}
+                cmp rax, [rsp + {offset}]
+                mov rbx, 7
+                mov rax, 3
+                cmove rax, rbx
+                "
+            )*/
         }
         Expr::If(cond, thn, els) => {
             let end_label = new_label(l, "ifend");
@@ -400,7 +424,7 @@ fn compile_expr(
             )
         }
 
-        Expr::Pair(e1, e2) => {
+        /*Expr::Pair(e1, e2) => {
             let e1is = compile_expr(e1, si, env, brake, l);
             let e2is = compile_expr(e2, si + 1, env, brake, l);
             let stack_offset = si * 8;
@@ -417,9 +441,34 @@ fn compile_expr(
                 add r15, 16
             "
             )
+        }*/
+
+        Expr::Tuple(exprs) => {
+            //tuple format:
+            //
+            //value passed to rax: tuple addr + 1
+            //at tuple addr:
+            //(max index) val1 val2 val3...
+            //result
+            let mut result = "".to_string();
+            //store returned heap address on stack
+            let stack_offset = si * 8;
+            result += &format!("mov [rsp + {stack_offset}], r15\nadd word [rsp + {stack_offset}], 1\n");
+            //mov max index into [r15]
+            let max_ind = exprs.len() - 1;
+            result += &format!("mov qword [r15], {max_ind}\nadd r15, 8\n");
+            //compile all exprs and put on the heap
+            for i in 0..exprs.len() {
+                result += &compile_expr(&exprs[i], si + 1, env, brake, l);
+                result += "\n";
+                result += "mov [r15], rax\nadd r15, 8\n";
+            }
+            //remove returned heap address from stack and put into rax
+            result += &format!("mov rax, [rsp + {stack_offset}]\n");
+            result
         }
 
-        Expr::Fst(e) => {
+        /*Expr::Fst(e) => {
             let eis = compile_expr(e, si, env, brake, l);
             format!(
                 "
@@ -437,25 +486,49 @@ fn compile_expr(
                 mov rax, [rax+7]
             "
             )
-        }
+        }*/
 
-        Expr::SetFst(e1, e2) => {
-            let e1is = compile_expr(e1, si, env, brake, l);
-            let e2is = compile_expr(e2, si + 1, env, brake, l);
+        Expr::Lookup(pair, ind) =>
+        {
+            //compile pair
+            let pair_instrs = compile_expr(pair, si, env, brake, l);
+            //compile index
+            let ind_instrs = compile_expr(ind, si + 1, env, brake, l);
             let stack_offset = si * 8;
             format!(
                 "
-                {e1is}
+                {pair_instrs}
+                mov rbx, rax
+                and rbx, 1
+                cmp rbx, 1
+                mov rbx, 4
+                jne throw_error
                 mov [rsp + {stack_offset}], rax
-                {e2is}
+                {ind_instrs}
+                test rax, 1
+                mov rbx, 5
+                jnz throw_error
+                sar rax, 1
+                cmp rax, 0
+                mov rbx, 6
+                jl throw_error
                 mov rbx, [rsp + {stack_offset}]
-                mov [rbx-1], rax
-                mov rax, [rsp + {stack_offset}]
+                sub rbx, 1
+                cmp rax, [rbx]
+                mov rbx, 6
+                jg throw_error
+                add rax, 1
+                imul rax, 8
+                mov rbx, [rsp + {stack_offset}]
+                sub rbx, 1
+                add rbx, rax
+                mov rax, [rbx]
             "
             )
+            //"".to_string()
         }
 
-        Expr::SetSnd(e1, e2) => {
+        /*Expr::SetSnd(e1, e2) => {
             let e1is = compile_expr(e1, si, env, brake, l);
             let e2is = compile_expr(e2, si + 1, env, brake, l);
             let stack_offset = si * 8;
@@ -469,7 +542,7 @@ fn compile_expr(
                 mov rax, [rsp + {stack_offset}]
             "
             )
-        }
+        }*/
     }
 }
 
@@ -495,19 +568,19 @@ fn depth(e: &Expr) -> i32 {
         Expr::Set(_, expr) => depth(expr),
         Expr::Call1(_, expr) => depth(expr),
         Expr::Call2(_, expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
-        Expr::Pair(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
-        Expr::Fst(expr) => depth(expr),
-        Expr::Snd(expr) => depth(expr),
-        Expr::SetFst(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
-        Expr::SetSnd(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
+        Expr::Tuple(exprs) => (exprs.iter().map(|expr| depth(expr)).max().unwrap_or(0)) + 1,
+        Expr::Lookup(expr, ind) => depth(expr).max(depth(ind) + 1),
     }
 }
 
 fn compile_program(p: &Program) -> (String, String) {
     let mut labels: i32 = 0;
-    let mut defs: String = String::new();
+    let mut defins: String = String::new();
     for def in &p.defs[..] {
-        defs.push_str(&compile_definition(&def, &mut labels));
+        let temp = &compile_definition(&def, &mut labels);
+        //eprintln!("{}", temp);
+        defins += temp;
+        defins += "\n";
     }
     let depth = depth(&p.main);
     let offset = depth * 8;
@@ -519,7 +592,7 @@ fn compile_program(p: &Program) -> (String, String) {
         add rsp, {offset}
     "
     );
-    (defs, main_with_offsetting)
+    (defins, main_with_offsetting)
 }
 
 fn compile_definition(d: &Definition, labels: &mut i32) -> String {
